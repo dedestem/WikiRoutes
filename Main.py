@@ -1,104 +1,98 @@
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 import wikipediaapi
 import json
 import os
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+import re
 
-# Stel een aangepaste user-agent in voor de Wikipedia API-aanroepen
-headers = {
-    'User-Agent': 'WikiRoutesBot/1.0'  # Pas dit aan
+# API Config
+Wiki = wikipediaapi.Wikipedia('WikiRoutesMap (github.com/dedestem/wikiroutes)/1.0')
+Headers = {
+    'User-Agent': 'WikiRoutesBot (github.com/dedestem/wikiroutes)/1.0'
 }
 
-# Maak een Wikipedia API object voor de Nederlandse Wikipedia
-wiki = wikipediaapi.Wikipedia('WikiRoutesMap/1.0')
-
-# Pad voor de cachemap
-cache_dir = 'wikicache'
-os.makedirs(cache_dir, exist_ok=True)  # Zorg dat de map bestaat
-
-def cache_file_path(title):
-    """Geeft het pad naar het cachebestand voor een specifieke pagina."""
-    safe_title = title.replace("/", "_").replace(":", "_")
-    return os.path.join(cache_dir, f"{safe_title}.json")
+# Cache Config
+CacheFolder = 'wikicache'
+os.makedirs(CacheFolder, exist_ok=True)
 
 
-def get_page_links(title):
-    """Haalt de links van een pagina op en slaat deze op in een apart cachebestand."""
-    file_path = cache_file_path(title)
+def GetCacheName(Title):
+    Formatted = re.sub(r'[\\\\/:*?\"<>|]', '_', Title)
+    return os.path.join(CacheFolder, f"{Formatted}.json")
 
-    # Controleer of de cache al bestaat
-    if os.path.exists(file_path):
-        print(f"Pagina '{title}' is al gecached.")
-        with open(file_path, 'r', encoding='utf-8') as f:
+def GetPageLinks(Title):
+    FilePath = GetCacheName(Title)
+
+    # Check For Cache
+    if os.path.exists(FilePath):
+        print(f"Pagina '{Title}' is al gecached.")
+        with open(FilePath, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    # Haal de pagina op via de API
-    page = wiki.page(title)
+    # Anders haal info op via API
+    Page = Wiki.page(Title)
 
-    # Controleer of de pagina bestaat
-    if not page.exists():
-        print(f"Pagina '{title}' bestaat niet.")
+    # Check of de pagina bestaat
+    if not Page.exists():
+        print(f"Pagina '{Title}' bestaat niet.")
         return []
 
-    # Haal de links van de pagina op
-    links = list(page.links.keys())
+    Links = list(Page.links.keys())
 
     # Sla de links op in een afzonderlijk cachebestand
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(links, f, ensure_ascii=False, indent=4)
+    with open(FilePath, 'w', encoding='utf-8') as f:
+        json.dump(Links, f, ensure_ascii=False, indent=4)
 
-    print(f"Pagina '{title}' is opgehaald en gecached.")
-    return links
+    print(f"Pagina '{Title}' is opgehaald en gecached.")
+    return Links
 
-def fetch_links_concurrently(titles):
-    """Haalt links van meerdere pagina's tegelijkertijd op met threading."""
-    results = {}
+def FetchLinksThreaded(Titles):
+    Results = {}
     
-    def fetch(title):
-        results[title] = get_page_links(title)
+    def Fetch(Title):
+        Results[Title] = GetPageLinks(Title)
 
     with ThreadPoolExecutor() as executor:
-        executor.map(fetch, titles)
+        executor.map(Fetch, Titles)
 
-    return results
+    return Results
 
-def find_shortest_path_with_cache(start_page, goal_page):
-    """Zoekt het kortste pad tussen twee pagina's met behulp van BFS en caching."""
-    queue = deque([(start_page, [start_page])])  # Korte pad met pagina en de route
-    visited = set()  # Gevisited om herhalingen te voorkomen
+def FindShortestWikiPath(Startpage, Endpage):
+    Queue = deque([(Startpage, [Startpage])])
+    Visited = set()
 
-    while queue:
-        current_page, path = queue.popleft()
+    while Queue:
+        Currentpage, Path = Queue.popleft()
 
-        # Check of we het doel hebben bereikt
-        if current_page == goal_page:
-            return path  # Return de route
+        if Currentpage == Endpage:
+            return Path
 
         # Voeg de huidige pagina toe aan visited
-        visited.add(current_page)
+        Visited.add(Currentpage)
 
         # Haal de links van de huidige pagina op uit de cache
-        links = get_page_links(current_page)
+        Links = GetPageLinks(Currentpage)
 
         # Filter links die nog niet bezocht zijn
-        unvisited_links = [link for link in links if link not in visited]
+        UnvisitedLinks = [Link for Link in Links if Link not in Visited]
 
-        # Voeg alle unvisited links toe aan de queue
-        for link in unvisited_links:
-            queue.append((link, path + [link]))
-            visited.add(link)
+        # Voegt alle links die nog niet bezocht zijn aan de queue
+        for Link in UnvisitedLinks:
+            Queue.append((Link, Path + [Link]))
+            Visited.add(Link)
 
     return None  # Geen pad gevonden
 
-# Voorbeeld gebruik
-start_page = "Appel"
-goal_page = "Banaan"
+# Start
 
-path = find_shortest_path_with_cache(start_page, goal_page)
+Startpage = "Appel"
+Goalpage = "Banaan"
 
-if path:
+Path = FindShortestWikiPath(Startpage, Goalpage)
+
+if Path:
     print("De snelste route is:")
-    for i, page in enumerate(path):
-        print(f"{i+1}. {page}")
+    for i, Page in enumerate(Path):
+        print(f"{i+1}. {Page}")
 else:
     print("Geen pad gevonden.")
